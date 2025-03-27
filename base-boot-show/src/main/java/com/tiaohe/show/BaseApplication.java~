@@ -1,0 +1,10 @@
+package com.tiaohe.show;
+
+@SpringBootApplication
+public class BaseApplication {
+    public static void main(String[] args) {
+        ApplicationContext context = SpringApplication.run(BaseApplication.class, args);
+        CustomService customService = context.getBean(CustomService.class);
+        customService.performAction();
+    }
+}
