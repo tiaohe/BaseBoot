@@ -32,7 +32,7 @@ public class RedisDistributedLockAspect {
         Method method = ((MethodSignature) joinPoint.getSignature()).getMethod();
         RedisDistributedLock annotation = method.getAnnotation(RedisDistributedLock.class);
 
-        // 构建锁 key，前缀默认使用方法全限定名
+        // 构建锁 key 前缀默认使用方法全限定名
         String prefix = annotation.prefixKey().isEmpty() ? SpElUtils.getMethodKey(method) : annotation.prefixKey();
         String key = SpElUtils.parseSpEl(method, joinPoint.getArgs(), annotation.key());
         String lockKey = String.join(SEPARATOR, prefix, key);

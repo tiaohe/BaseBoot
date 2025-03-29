@@ -7,8 +7,6 @@ import org.springframework.context.ApplicationContext;
 @SpringBootApplication(scanBasePackages = "com.tiaohe")
 public class BaseApplication {
     public static void main(String[] args) {
-        ApplicationContext context = SpringApplication.run(BaseApplication.class, args);
-        CustomService customService = context.getBean(CustomService.class);
-        customService.performAction();
+       SpringApplication.run(BaseApplication.class, args);
     }
 }

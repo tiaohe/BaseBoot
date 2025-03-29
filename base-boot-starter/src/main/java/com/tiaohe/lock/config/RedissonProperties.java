@@ -44,31 +44,9 @@ public class RedissonProperties {
     private String sentinelMasterName;
 
     /**
-     * 应用名称
-     */
-    private String appName = "defaultApp";
-
-    /**
-     * 运行环境标识
-     */
-    private String env = "dev";
-
-    /**
-     * 锁的前缀，避免 Redis 键冲突
-     */
-    private String keyPrefix = "lock";
-
-    /**
      * 线程池配置
      */
     private ThreadPoolConfig threadPool = new ThreadPoolConfig();
-
-    /**
-     * 生成完整的 Redis Key 前缀
-     */
-    public String getFullKeyPrefix() {
-        return String.format("%s:%s:%s:", appName, env, keyPrefix);
-    }
 
     /**
      * 线程池配置类

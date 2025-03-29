@@ -1,0 +1,7 @@
+redis:
+  lock:
+    mode: ${redis.lock.mode}
+    addresses: ${redis.lock.addresses}
+    password: ${redis.lock.password}
+    database: ${redis.lock.database}
+    enabled: ${redis.lock.enabled}
