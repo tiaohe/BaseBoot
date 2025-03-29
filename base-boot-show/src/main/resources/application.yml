@@ -5,3 +5,8 @@ redis:
     password: ${redis.lock.password}
     database: ${redis.lock.database}
     enabled: ${redis.lock.enabled}
+logging:
+  level:
+    root: info
+    com.tiaohe: debug
+    org.redisson: debug

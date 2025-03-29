@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -155,9 +156,12 @@ public class RedisDistributedLockService {
         int leaseTime = annotation.leaseTime();
         TimeUnit unit = annotation.unit();
 
-        // 采用异步模式
-        if (!annotation.isSync()) {
-            return (T) executeAsyncLock(lockKey, waitTime, leaseTime, unit, supplier);
+        if (annotation.isSync()) {
+            try {
+                return executeAsyncLock(lockKey, waitTime, leaseTime, unit, supplier).get();
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException("Async lock execution failed", e);
+            }
         }
 
         // 采用快速失败模式
