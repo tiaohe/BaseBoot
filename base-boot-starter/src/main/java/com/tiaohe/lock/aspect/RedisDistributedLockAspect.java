@@ -13,6 +13,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
+import java.util.concurrent.Callable;
 
 /**
  * 分布式锁切面：只负责解析参数并调用统一入口方法
@@ -32,12 +33,21 @@ public class RedisDistributedLockAspect {
         Method method = ((MethodSignature) joinPoint.getSignature()).getMethod();
         RedisDistributedLock annotation = method.getAnnotation(RedisDistributedLock.class);
 
-        // 构建锁 key 前缀默认使用方法全限定名
+        // 构建锁 key
         String prefix = annotation.prefixKey().isEmpty() ? SpElUtils.getMethodKey(method) : annotation.prefixKey();
         String key = SpElUtils.parseSpEl(method, joinPoint.getArgs(), annotation.key());
         String lockKey = String.join(SEPARATOR, prefix, key);
 
-        // 调用统一入口方法，所有分支判断在 service 内部完成
-        return redisLockService.executeLock(lockKey, joinPoint::proceed, annotation);
+        log.debug("Trying to acquire lock with key: {}", lockKey);
+
+        Callable<Object> supplier = () -> {
+            try {
+                return joinPoint.proceed();
+            } catch (Throwable e) {
+                throw new RuntimeException("业务执行失败", e);
+            }
+        };
+
+        return redisLockService.executeLock(lockKey, supplier, annotation);
     }
 }

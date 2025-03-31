@@ -8,11 +8,11 @@ import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+
 
 @Service
 @Slf4j
@@ -24,25 +24,11 @@ public class RedisDistributedLockService {
     @Autowired
     private RedisLockExecutorService executorService;
 
-    @FunctionalInterface
-    public interface SupplierThrow<T> {
-        T get() throws Throwable;
-    }
-
     /**
-     *执行分布式锁逻辑
-     *
-     * @param lockKey   锁唯一标识
-     * @param waitTime  等待锁的时间
-     * @param leaseTime 持有锁的时间
-     * @param unit      时间单位
-     * @param supplier  业务逻辑
-     * @param errorMsg  获取锁失败的错误信息
-     * @param <T>       返回值泛型
-     * @return 业务执行结果
+     * 执行分布式锁逻辑
      */
     private <T> T executeLockInternal(String lockKey, int waitTime, int leaseTime, TimeUnit unit,
-                                      SupplierThrow<T> supplier, String errorMsg) {
+                                      Callable<T> supplier, String errorMsg) {
         RLock lock = redissonClient.getLock(lockKey);
         boolean acquired = false;
         try {
@@ -50,12 +36,12 @@ public class RedisDistributedLockService {
             if (!acquired) {
                 throw new RuntimeException(errorMsg);
             }
-            return supplier.get();
+            return supplier.call();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("线程被中断，Key={}，错误：{}", lockKey, e.getMessage(), e);
             throw new RuntimeException(errorMsg, e);
-        } catch (Throwable e) {
+        } catch (Exception e) {
             log.error("执行锁内逻辑时发生异常，Key={}，错误：{}", lockKey, e.getMessage(), e);
             throw new RuntimeException(errorMsg, e);
         } finally {
@@ -64,112 +50,80 @@ public class RedisDistributedLockService {
     }
 
     /**
-     * **释放锁**
-     *
-     * @param lockKey  锁的Key
-     * @param lock     Redisson 锁对象
-     * @param acquired 是否成功获取锁
+     * 释放锁
      */
     private void releaseLock(String lockKey, RLock lock, boolean acquired) {
-        if (acquired && lock.isHeldByCurrentThread()) {
+        if (acquired) {
             try {
-                lock.unlock();
-            } catch (Exception e) {
-                log.error("释放锁失败，Key={}，错误：{}", lockKey, e.getMessage(), e);
+                if (lock.isHeldByCurrentThread()) {
+                    lock.unlock();
+                }
+            } catch (IllegalMonitorStateException e) {
+                log.warn("锁可能已被释放，Key={}", lockKey, e);
             }
         }
     }
 
     /**
-     * **同步执行模式**
+     * 同步执行模式
      */
     public <T> T executeSyncLock(String lockKey, int waitTime, int leaseTime, TimeUnit unit,
-                                 SupplierThrow<T> supplier) {
+                                 Callable<T> supplier) {
         return executeLockInternal(lockKey, waitTime, leaseTime, unit, supplier, "获取锁失败，请稍后重试");
     }
 
     /**
-     * **快速失败模式**
+     * 快速失败模式
      */
     public <T> T executeFailFastLock(String lockKey, int waitTime, int leaseTime, TimeUnit unit,
-                                     SupplierThrow<T> supplier, RedisDistributedLock annotation) {
+                                     Callable<T> supplier, RedisDistributedLock annotation) {
         return executeLockInternal(lockKey, waitTime, leaseTime, unit, supplier, annotation.errorMessage());
     }
 
+    /**
+     * 异步执行模式
+     */
     public <T> CompletableFuture<T> executeAsyncLock(String lockKey, int waitTime, int leaseTime, TimeUnit unit,
-                                                     SupplierThrow<T> supplier) {
-        // Create the lock object
+                                                     Callable<T> supplier) {
         RLock lock = redissonClient.getLock(lockKey);
 
-        // Create a CompletableFuture to track the lock acquisition and business logic execution
         return CompletableFuture.supplyAsync(() -> {
             boolean acquired = false;
-            long threadId = Thread.currentThread().getId();
-            log.debug("Attempting to acquire lock, Key={}, ThreadID={}", lockKey, threadId);
-
             try {
-                // Try to acquire the lock with timeout
                 acquired = lock.tryLock(waitTime, leaseTime, unit);
                 if (!acquired) {
-                    throw new RuntimeException("Failed to acquire lock, please try again later");
+                    throw new RuntimeException("获取锁失败，请稍后重试");
                 }
-
-                log.debug("Lock acquired successfully, Key={}, ThreadID={}", lockKey, threadId);
-
-                // Execute the business logic
-                return supplier.get();
+                return supplier.call();
             } catch (Throwable e) {
-                log.error("Async lock execution failed, Key={}, Error: {}", lockKey, e.getMessage(), e);
+                log.error("异步锁执行失败，Key={}, 错误：{}", lockKey, e.getMessage(), e);
                 throw new CompletionException(e);
             } finally {
-                // Release the lock in the same thread that acquired it
-                if (acquired) {
-                    try {
-                        if (lock.isHeldByCurrentThread()) {
-                            lock.unlock();
-                            log.debug("Lock released, Key={}, ThreadID={}", lockKey, threadId);
-                        } else {
-                            log.warn("Cannot release lock - not held by current thread, Key={}, ThreadID={}",
-                                    lockKey, threadId);
-                        }
-                    } catch (Exception e) {
-                        log.error("Failed to release lock, Key={}, Error: {}", lockKey, e.getMessage(), e);
-                    }
-                }
+                releaseLock(lockKey, lock, acquired);
             }
-        }, executorService);
+        }, executorService).handle((result, ex) -> {
+            if (ex != null) {
+                log.error("CompletableFuture 执行失败，Key={}, 错误：{}", lockKey, ex.getMessage(), ex);
+                throw new CompletionException(ex);
+            }
+            return result;
+        });
     }
 
-
     /**
-     * **统一执行入口**
-     *
-     * @param lockKey    构造好的锁Key
-     * @param supplier   业务逻辑
-     * @param annotation 注解参数
-     * @param <T>        返回值泛型
-     * @return 业务执行结果
+     * 统一执行入口
      */
-    @SuppressWarnings("unchecked")
-    public <T> T executeLock(String lockKey, SupplierThrow<T> supplier, RedisDistributedLock annotation) {
+    public <T> T executeLock(String lockKey, Callable<T> supplier, RedisDistributedLock annotation) {
         int waitTime = annotation.waitTime();
         int leaseTime = annotation.leaseTime();
         TimeUnit unit = annotation.unit();
 
         if (annotation.isSync()) {
-            try {
-                return executeAsyncLock(lockKey, waitTime, leaseTime, unit, supplier).get();
-            } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException("Async lock execution failed", e);
-            }
+            return executeAsyncLock(lockKey, waitTime, leaseTime, unit, supplier).join();
         }
 
-        // 采用快速失败模式
-        if (annotation.failFast()) {
-            return executeFailFastLock(lockKey, waitTime, leaseTime, unit, supplier, annotation);
-        }
-
-        // 默认采用同步模式
-        return executeSyncLock(lockKey, waitTime, leaseTime, unit, supplier);
+        return annotation.failFast()
+                ? executeFailFastLock(lockKey, waitTime, leaseTime, unit, supplier, annotation)
+                : executeSyncLock(lockKey, waitTime, leaseTime, unit, supplier);
     }
 }
