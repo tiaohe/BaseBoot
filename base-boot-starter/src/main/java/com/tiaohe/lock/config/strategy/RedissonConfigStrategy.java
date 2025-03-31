@@ -7,8 +7,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Redis 配置策略接口
- * 每种模式都需要实现这个接口来配置 Redis
+ * Redis 配置策略接口 每种模式都需要实现这个接口来配置 Redis
  */
 public interface RedissonConfigStrategy {
     // Redis URL 前缀

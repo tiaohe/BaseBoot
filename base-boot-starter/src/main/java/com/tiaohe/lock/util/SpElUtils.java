@@ -1,5 +1,8 @@
 package com.tiaohe.lock.util;
 
+import java.lang.reflect.Method;
+import java.util.Optional;
+
 import org.springframework.core.DefaultParameterNameDiscoverer;
 import org.springframework.expression.EvaluationContext;
 import org.springframework.expression.Expression;
@@ -7,12 +10,8 @@ import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.expression.spel.support.StandardEvaluationContext;
 
-import java.lang.reflect.Method;
-import java.util.Optional;
-
 /**
- * SpEL (Spring Expression Language) 工具类
- * 用于解析方法参数并执行表达式
+ * SpEL (Spring Expression Language) 工具类 用于解析方法参数并执行表达式
  */
 public class SpElUtils {
 
@@ -26,14 +25,14 @@ public class SpElUtils {
      * 解析传入的 SpEL 表达式
      *
      * @param method 当前执行的方法
-     * @param args   方法的参数值
-     * @param spEl   需要解析的 SpEL 表达式
+     * @param args 方法的参数值
+     * @param spEl 需要解析的 SpEL 表达式
      * @return 解析后的字符串结果
      */
     public static String parseSpEl(Method method, Object[] args, String spEl) {
         // 获取方法的参数名
-        String[] params = Optional.ofNullable(parameterNameDiscoverer.getParameterNames(method))
-                .orElse(new String[]{});
+        String[] params =
+            Optional.ofNullable(parameterNameDiscoverer.getParameterNames(method)).orElse(new String[] {});
 
         // 创建 SpEL 表达式的上下文
         EvaluationContext context = new StandardEvaluationContext();
