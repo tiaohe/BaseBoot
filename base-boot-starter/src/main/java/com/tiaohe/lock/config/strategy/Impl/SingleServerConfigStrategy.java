@@ -12,12 +12,18 @@ public class SingleServerConfigStrategy implements RedissonConfigStrategy {
     @Override
     public Config configure(RedissonProperties properties) {
         Config config = new Config();
+
+        // 使用 formatAddress() 处理单个地址
+        String formattedAddress = formatAddress(properties.getAddresses().get(0));
+
         config.useSingleServer()
-                .setAddress(properties.getAddresses().get(0))  // 单机地址
+                .setAddress(formattedAddress)
                 .setDatabase(properties.getDatabase());
+
         if (properties.getPassword() != null) {
             config.useSingleServer().setPassword(properties.getPassword());
         }
+
         return config;
     }
 }
