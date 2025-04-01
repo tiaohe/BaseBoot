@@ -3,6 +3,7 @@ package com.tiaohe.lock.aspect;
 import com.tiaohe.lock.annotation.RedisDistributedLock;
 import com.tiaohe.lock.service.RedisDistributedLockService;
 import com.tiaohe.lock.util.SpElUtils;
+import com.tiaohe.lock.util.ThrowUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -21,7 +22,7 @@ import java.util.concurrent.Callable;
 @Slf4j
 @Aspect
 @Component
-@Order(0) // 确保比事务注解先执行，分布式锁在事务外
+@Order(0)
 public class RedisDistributedLockAspect {
     private static final String SEPARATOR = ":";
 
@@ -33,21 +34,26 @@ public class RedisDistributedLockAspect {
         Method method = ((MethodSignature) joinPoint.getSignature()).getMethod();
         RedisDistributedLock annotation = method.getAnnotation(RedisDistributedLock.class);
 
-        // 构建锁 key
-        String prefix = annotation.prefixKey().isEmpty() ? SpElUtils.getMethodKey(method) : annotation.prefixKey();
-        String key = SpElUtils.parseSpEl(method, joinPoint.getArgs(), annotation.key());
-        String lockKey = String.join(SEPARATOR, prefix, key);
-
+        String lockKey = constructLockKey(method, joinPoint.getArgs(), annotation);
         log.debug("Trying to acquire lock with key: {}", lockKey);
 
-        Callable<Object> supplier = () -> {
-            try {
-                return joinPoint.proceed();
-            } catch (Throwable e) {
-                throw new RuntimeException("业务执行失败", e);
-            }
-        };
+        Callable<Object> supplier = () -> proceedWithJoinPoint(joinPoint);
 
         return redisLockService.executeLock(lockKey, supplier, annotation);
+    }
+
+    private String constructLockKey(Method method, Object[] args, RedisDistributedLock annotation) {
+        String prefix = annotation.prefixKey().isEmpty() ? SpElUtils.getMethodKey(method) : annotation.prefixKey();
+        String key = SpElUtils.parseSpEl(method, args, annotation.key());
+        return String.join(SEPARATOR, prefix, key);
+    }
+
+    private Object proceedWithJoinPoint(ProceedingJoinPoint joinPoint) {
+        try {
+            return joinPoint.proceed();
+        } catch (Throwable e) {
+            ThrowUtils.logError("业务执行失败", e);
+            throw new RuntimeException("业务执行失败", e);
+        }
     }
 }
